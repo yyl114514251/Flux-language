@@ -1,0 +1,224 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<link rel="icon" href="data:,">
+<title>Flux · 表达式优先脚本语言</title>
+<style>
+:root{--bg:#0d1117;--panel:#161b22;--panel2:#1c2333;--border:#30363d;--text:#e6edf3;--muted:#8b949e;--accent:#58a6ff;--accent2:#bc8cff;--ok:#3fb950;--err:#f85149}
+*{box-sizing:border-box}html,body{margin:0;height:100%}
+body{background:var(--bg);color:var(--text);font-family:"Segoe UI","Microsoft YaHei",system-ui,sans-serif;display:flex;flex-direction:column;overflow:hidden}
+header{display:flex;align-items:center;gap:12px;padding:10px 18px;background:linear-gradient(90deg,var(--panel),var(--panel2));border-bottom:1px solid var(--border);flex-wrap:wrap}
+.logo{font-size:17px;font-weight:700;letter-spacing:.5px}.logo b{color:var(--accent)}.logo small{color:var(--muted);font-weight:400;margin-left:6px}
+.spacer{flex:1}
+.btn{background:var(--panel2);color:var(--text);border:1px solid var(--border);border-radius:8px;padding:7px 14px;font-size:13px;cursor:pointer;transition:.15s}
+.btn:hover{border-color:var(--accent)}
+.btn.primary{background:linear-gradient(90deg,var(--accent),var(--accent2));border:none;font-weight:600}
+select{background:var(--panel2);color:var(--text);border:1px solid var(--border);border-radius:8px;padding:7px 8px;font-size:13px}
+main{flex:1;display:flex;min-height:0}
+.edit-pane{width:46%;min-width:320px;display:flex;flex-direction:column;border-right:1px solid var(--border)}
+.editor-wrap{position:relative;flex:1;min-height:0;background:#0d1117}
+.editor-wrap textarea,.editor-wrap .hl{font-family:"Cascadia Code",Consolas,monospace;font-size:14px;line-height:1.6;padding:14px 16px;margin:0;border:none;white-space:pre-wrap;word-wrap:break-word;width:100%;height:100%}
+.editor-wrap textarea{position:absolute;inset:0;resize:none;outline:none;color:transparent;caret-color:#fff;background:transparent;overflow:auto;tab-size:2}
+.editor-wrap .hl{position:absolute;inset:0;overflow:hidden;pointer-events:none;color:var(--muted)}
+.tk{color:#ff7b72}.tn{color:#d2a8ff}.ts{color:#a5d6ff}.to{color:#79c0ff}.tc{color:#8b949e;font-style:italic}.tf{color:#d2a8ff}.ti{color:var(--text)}
+.right-pane{flex:1;display:flex;flex-direction:column;min-width:0}
+.canvas-box{height:42%;min-height:220px;border-bottom:1px solid var(--border);background:#0d0f1a;display:flex;align-items:center;justify-content:center;position:relative}
+canvas{background:#10131f;border:1px solid var(--border);border-radius:8px;max-width:100%;max-height:100%}
+.canvas-empty{position:absolute;color:var(--muted);font-size:13px;pointer-events:none}
+.output-box{flex:1;min-height:0;display:flex;flex-direction:column}
+.output-title{padding:8px 14px;font-size:12px;color:var(--muted);border-bottom:1px solid var(--border)}
+#out{flex:1;overflow:auto;padding:10px 14px;font-family:"Cascadia Code",Consolas,monospace;font-size:13px;line-height:1.55;white-space:pre-wrap}
+.line-out{color:var(--text)}.line-err{color:var(--err)}.line-ok{color:var(--ok);font-weight:600}
+.modal-mask{position:fixed;inset:0;background:rgba(0,0,0,.55);display:none;align-items:center;justify-content:center;z-index:50}
+.modal-mask.open{display:flex}
+.modal{background:var(--panel);border:1px solid var(--border);border-radius:12px;padding:24px 28px;max-width:760px;width:92%;max-height:82vh;overflow:auto}
+.modal h2{margin:0 0 14px;font-size:18px}.modal h3{margin:18px 0 6px;font-size:14px;color:var(--accent)}
+.modal pre{background:#0d0f1a;padding:10px 12px;border-radius:8px;font-size:13px;line-height:1.5;overflow:auto}
+.modal .close{float:right;cursor:pointer;color:var(--muted);font-size:20px}
+</style>
+</head>
+<body>
+<header>
+  <div class="logo"><b>Flux</b><small>v0.1 · 表达式优先脚本语言</small></div>
+  <select id="exampleSelect"><option value="">加载示例…</option><option value="fib">斐波那契</option><option value="pipeline">管道·数据流</option><option value="sort">冒泡排序+断言</option><option value="pi">蒙特卡洛</option><option value="sin">绘图·正弦波</option></select>
+  <div class="spacer"></div>
+  <button class="btn" onclick="saveCode()">保存</button>
+  <button class="btn" onclick="clearOutput()">清空</button>
+  <button class="btn" onclick="openHelp()">语法</button>
+  <button class="btn primary" onclick="runCode()">▶ 运行</button>
+</header>
+<main>
+  <section class="edit-pane"><div class="editor-wrap"><pre class="hl" aria-hidden="true" id="hl"></pre><textarea id="code" spellcheck="false" wrap="soft" placeholder="// Flux 代码…"></textarea></div></section>
+  <section class="right-pane">
+    <div class="canvas-box"><canvas id="canvas" width="480" height="320"></canvas><div class="canvas-empty" id="canvasEmpty">绘图画布</div></div>
+    <div class="output-box"><div class="output-title">输出</div><div id="out"></div></div>
+  </section>
+</main>
+<div class="modal-mask" id="helpMask" onclick="if(event.target===this)closeHelp()">
+  <div class="modal"><span class="close" onclick="closeHelp()">✕</span>
+  <h2>Flux 语法速查</h2>
+  <p>表达式优先、管道流动、空值安全、默认不可变。花括号 { } 分块。</p>
+  <h3>变量</h3><pre>let x = 10     // 不可变（赋值会报错）
+var y = 20     // 可变
+y = 30         // OK</pre>
+  <h3>管道 |>（核心特色）</h3><pre>[1,2,3,4,5]
+  |> fn(arr) { arr.filter(fn(x) { x > 2 }) }
+  |> fn(arr) { arr.map(fn(x) { x * x }) }
+  |> fn(arr) { arr.reduce(fn(a,b) { a+b }, 0) }
+// 结果: 9 + 16 + 25 = 50</pre>
+  <h3>表达式 if / match</h3><pre>let g = if score >= 90 { "A" } else { "B" }
+let r = match color {
+  "red"   => { 1 }
+  "green" => { 2 }
+  _       => { 0 }
+}</pre>
+  <h3>函数</h3><pre>fn add(a, b) { return a + b }
+let sq = fn(x) => x * x     // 箭头函数
+add(2, 3)  // 5
+sq(7)     // 49</pre>
+  <h3>范围与循环</h3><pre>for i in 1..5 { print(i) }    // 1 2 3 4（不含5）
+for i in 1..=5 { print(i) }   // 1 2 3 4 5（含5）
+for i in 1..<5 { print(i) }   // 1 2 3 4（排除上界）
+while cond { ... }
+break / continue</pre>
+  <h3>空值安全</h3><pre>let v = obj?.name        // obj 为 null 时返回 null
+let d = v ?? "默认值"    // v 为 null 时取默认值</pre>
+  <h3>字符串插值</h3><pre>let name = "World"
+print(f"Hello, ${name}! 1+1=${1+1}")</pre>
+  <h3>断言</h3><pre>assert 1 + 1 == 2
+assert sorted[0] == 11, "最小值应该是11"</pre>
+  <h3>内置库</h3><pre>print len type str int float abs min max sum round range
+math.sqrt/sin/cos/tan/exp/log/pow/floor/ceil/pi/e
+random.random/randint/uniform/choice/shuffle
+arr.map/filter/reduce/push/pop/sort/reverse/join/slice/contains/first/last/each
+str.upper/lower/trim/split/replace/contains/find/slice/repeat
+draw.line/circle/fill_circle/rect/fill_rect/plot/text/point/background</pre>
+  </div>
+</div>
+<script src="core.js"></script>
+<script>
+var editor=document.getElementById('code'),hl=document.getElementById('hl'),outEl=document.getElementById('out'),canvas=document.getElementById('canvas'),ctx=canvas.getContext('2d'),emptyTip=document.getElementById('canvasEmpty'),SAVE_KEY='flux_source';
+var KW={let:1,var:1,fn:1,return:1,if:1,else:1,match:1,for:1,in:1,while:1,break:1,continue:1,true:1,false:1,null:1,and:1,or:1,not:1,assert:1};
+var EX={
+fib:`// 斐波那契
+fn fib(n) {
+  if n < 2 { return n }
+  return fib(n - 1) + fib(n - 2)
+}
+print("前 12 项:")
+for i in 0..<12 {
+  print(f"fib(\${i}) = \${fib(i)}")
+}`,
+pipeline:`// 管道式数据流 — Flux 核心特色
+let data = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]
+let result = data
+  |> fn(arr) { arr.filter(fn(x) { x % 2 == 0 }) }
+  |> fn(arr) { arr.map(fn(x) { x * x }) }
+  |> fn(arr) { arr.reduce(fn(a, b) { a + b }, 0) }
+print(f"偶数平方和: \${result}")
+
+// 表达式 if
+let score = 85
+let grade = if score >= 90 { "A" } else if score >= 80 { "B" } else { "C" }
+print(f"等级: \${grade}")
+
+// match 模式匹配
+let day = "Fri"
+let mood = match day {
+  "Mon" => { "糟糕" }
+  "Fri" => { "兴奋" }
+  _ => { "一般" }
+}
+print(f"\${day} 心情: \${mood}")`,
+sort:`// 冒泡排序 + assert 断言
+fn bubble_sort(arr) {
+  var n = arr.len()
+  for i in 0..<n {
+    for j in 0..<n - i - 1 {
+      if arr[j] > arr[j + 1] {
+        var t = arr[j]
+        arr[j] = arr[j + 1]
+        arr[j + 1] = t
+      }
+    }
+  }
+  return arr
+}
+let data = [64, 34, 25, 12, 22, 11, 90]
+print("排序前:", data)
+let sorted = bubble_sort(data)
+print("排序后:", sorted)
+assert sorted == [11, 12, 22, 25, 34, 64, 90]
+assert sorted.first() == 11
+print("断言全部通过!")`,
+pi:`// 蒙特卡洛估算圆周率
+let points = 100000
+var inside = 0
+for i in 0..<points {
+  let x = random.uniform(0, 1)
+  let y = random.uniform(0, 1)
+  if x * x + y * y <= 1 { inside += 1 }
+}
+let pi_est = 4 * inside / points
+print(f"估算: \${pi_est}")
+print(f"真实: \${math.pi}")
+print(f"误差: \${abs(pi_est - math.pi)}")`,
+sin:`// 绘制正弦波
+draw.background("black")
+draw.line(0, 160, 480, 160, "gray")
+draw.line(240, 0, 240, 320, "gray")
+let xs = []
+let ys = []
+for i in 0..<100 {
+  let x = i * 4.8
+  let y = 160 - 60 * math.sin(i * 0.08)
+  xs.push(x)
+  ys.push(y)
+  draw.point(x, y, "cyan")
+}
+draw.plot(xs, ys, "cyan")
+draw.text("y = sin(x)", 20, 30, "white")`
+};
+function esc(s){return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')}
+function renderHL(){
+  var src=editor.value;
+  var html=src.replace(/(\/\/[^\n]*|\/\*[\s\S]*?\*\/)|("(?:[^"\\]|\\.)*"|'(?:[^'\\]|\\.)*'|f"(?:[^"\\]|\\.|\$\{[^}]*\})*")|(\b\d+(?:\.\d+)?\b)|([a-zA-Z_$][\w$]*)|(\|>|=>|->|\.\.=|\.\.<|\.\.|\?\.|\?\?|==|!=|<=|>=|&&|\|\||\*\*|[+\-*/%=<>!(){}\[\],:;.])/g,
+    function(m,com,str,num,id,op){
+      if(com)return'<span class="tc">'+esc(m)+'</span>';
+      if(str)return'<span class="ts">'+esc(m)+'</span>';
+      if(num)return'<span class="tn">'+m+'</span>';
+      if(id)return KW[m]?'<span class="tk">'+m+'</span>':'<span class="ti">'+m+'</span>';
+      if(op)return'<span class="to">'+esc(m)+'</span>';
+      return m;});
+  hl.innerHTML=html+'\n';
+}
+editor.addEventListener('scroll',function(){hl.scrollTop=editor.scrollTop;hl.scrollLeft=editor.scrollLeft});
+editor.addEventListener('input',renderHL);
+function appendLine(text,cls){var d=document.createElement('div');d.className=cls||'line-out';d.textContent=text;outEl.appendChild(d);outEl.scrollTop=outEl.scrollHeight}
+function runCode(){
+  var src=editor.value;outEl.innerHTML='';emptyTip.style.display='none';
+  try{ctx.clearRect(0,0,canvas.width,canvas.height)}catch(e){}
+  appendLine('=== 运行开始 ===','line-ok');
+  try{
+    Flux.run(src,{print:function(s){appendLine(s,'line-out')},input:function(p){return prompt(p||'')||''},drawing:ctx,maxSteps:2000000});
+    appendLine('=== 完成 ===','line-ok');
+  }catch(e){
+    if(e&&e.isFlux){
+      appendLine('错误: '+e.message,'line-err');
+      appendLine('第 '+e.line+' 行, 第 '+e.col+' 列','line-err');
+      var lines=src.split('\n');
+      if(e.line>=1&&e.line<=lines.length){appendLine(e.line+' | '+lines[e.line-1],'line-err');appendLine('  '+' '.repeat(e.col-1)+'^','line-err')}
+    }else{appendLine('内部错误: '+(e&&e.message?e.message:e),'line-err')}
+  }
+}
+function clearOutput(){outEl.innerHTML=''}
+function saveCode(){try{localStorage.setItem(SAVE_KEY,editor.value);alert('已保存')}catch(e){alert('保存失败')}}
+function loadSaved(){try{var v=localStorage.getItem(SAVE_KEY);if(v){editor.value=v;renderHL()}}catch(e){}}
+document.getElementById('exampleSelect').addEventListener('change',function(e){var k=e.target.value;if(EX[k]){editor.value=EX[k];renderHL();outEl.innerHTML=''}e.target.value=''});
+function openHelp(){document.getElementById('helpMask').classList.add('open')}
+function closeHelp(){document.getElementById('helpMask').classList.remove('open')}
+loadSaved();if(!editor.value){editor.value=EX.pipeline;renderHL()}editor.focus();
+</script>
+</body></html>
